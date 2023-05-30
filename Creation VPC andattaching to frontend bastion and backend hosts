@@ -1,0 +1,421 @@
+provider.tf
+------------
+provider "aws" {
+  default_tags {
+    tags = {
+      "Project" = var.project_name
+      "Env"     = var.project_env
+      "Owner"   = "Preshob"
+    }
+  }
+  region     = var.region
+  access_key = var.access_key
+  secret_key = var.secret_key
+}
+============================================================================
+ 
+variable.tf
+------------
+variable "ami_id" {
+  description = "ami id"
+  type        = string
+  default     = "ami-0c768662cc797cd75"
+}
+ 
+variable "instance_type" {
+  description = "instance type"
+  type        = string
+  default     = "t2.micro"
+}
+ 
+variable "project_name" {
+  description = " project name"
+  type        = string
+  default     = "zomato"
+}
+ 
+variable "project_env" {
+  description = "project environment"
+  type        = string
+  default     = "prod"
+}
+ 
+variable "access_key" {
+  default = "*****"
+}
+ 
+variable "secret_key" {
+  default = "*****"
+}
+ 
+variable "region" {
+  default = "ap-south-1"
+}
+ 
+variable "vpc_cidrblock" {
+  default = "10.1.0.0/16"
+}
+variable "publicsubnet-1" {
+  default = "10.1.0.0/19"
+}
+ 
+variable "publicsubnet-2" {
+  default = "10.1.32.0/19"
+}
+ 
+variable "publicsubnet-3" {
+  default = "10.1.64.0/19"
+}
+ 
+variable "privatesubnet-1" {
+  default = "10.1.96.0/19"
+}
+variable "privatesubnet-2" {
+  default = "10.1.128.0/19"
+}
+variable "privatesubnet-3" {
+  default = "10.1.160.0/19"
+}
+==================================================
+ 
+main.tf :
+-------
+## ------creation of VPC------ ##
+ 
+resource "aws_vpc" "vpc" {
+  cidr_block           = var.vpc_cidrblock
+  instance_tenancy     = "default"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-vpc"
+  }
+}
+ 
+## ------ Creation of internet gateway -----##
+ 
+resource "aws_internet_gateway" "internetgateway" {
+  vpc_id = aws_vpc.vpc.id
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-igw"
+  }
+}
+ 
+## ------Creation of subnets----##
+ 
+resource "aws_subnet" "publicsubnet-1" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = var.publicsubnet-1
+  availability_zone       = "${var.region}a"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-publicsubnet-1"
+  }
+}
+ 
+resource "aws_subnet" "publicsubnet-2" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = var.publicsubnet-2
+  availability_zone       = "${var.region}b"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-publicsubnet-2"
+  }
+}
+ 
+ 
+resource "aws_subnet" "publicsubnet-3" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = var.publicsubnet-3
+  availability_zone       = "${var.region}c"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-publicsubnet-3"
+  }
+}
+ 
+resource "aws_subnet" "privatesubnet-1" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = var.privatesubnet-1
+  availability_zone       = "${var.region}a"
+  map_public_ip_on_launch = false
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-privatesubnet-1"
+  }
+}
+ 
+resource "aws_subnet" "privatesubnet-2" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = var.privatesubnet-2
+  availability_zone       = "${var.region}b"
+  map_public_ip_on_launch = false
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-privatesubnet-2"
+  }
+}
+ 
+resource "aws_subnet" "privatesubnet-3" {
+  vpc_id                  = aws_vpc.vpc.id
+  cidr_block              = var.privatesubnet-3
+  availability_zone       = "${var.region}c"
+  map_public_ip_on_launch = false
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-privatesubnet-3"
+  }
+}
+ 
+##-----Creation of elastic IP---##
+ 
+resource "aws_eip" "elastic_ip" {
+  vpc = true
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-elastic_ip"
+  }
+}
+ 
+##---creation of NAT gateway -----##
+ 
+resource "aws_nat_gateway" "nat_gateway" {
+  allocation_id = aws_eip.elastic_ip.id
+  subnet_id     = aws_subnet.publicsubnet-1.id
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-nat_gateway"
+  }
+  depends_on = [aws_internet_gateway.internetgateway]
+}
+ 
+##---Creation of route table ---##
+ 
+resource "aws_route_table" "route_public" {
+  vpc_id = aws_vpc.vpc.id
+ 
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.internetgateway.id
+  }
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-route_public"
+  }
+}
+ 
+resource "aws_route_table" "route_private" {
+  vpc_id = aws_vpc.vpc.id
+ 
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_nat_gateway.nat_gateway.id
+  }
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-route_private"
+  }
+}
+ 
+##----route table association ----#
+resource "aws_route_table_association" "public_subnet_1" {
+  subnet_id      = aws_subnet.publicsubnet-1.id
+  route_table_id = aws_route_table.route_public.id
+}
+resource "aws_route_table_association" "public_subnet_2" {
+  subnet_id      = aws_subnet.publicsubnet-2.id
+  route_table_id = aws_route_table.route_public.id
+}
+resource "aws_route_table_association" "public_subnet_3" {
+  subnet_id      = aws_subnet.publicsubnet-3.id
+  route_table_id = aws_route_table.route_public.id
+}
+ 
+resource "aws_route_table_association" "private_subnet_1" {
+  subnet_id      = aws_subnet.privatesubnet-1.id
+  route_table_id = aws_route_table.route_private.id
+}
+ 
+resource "aws_route_table_association" "private_subnet_2" {
+  subnet_id      = aws_subnet.privatesubnet-2.id
+  route_table_id = aws_route_table.route_private.id
+}
+resource "aws_route_table_association" "private_subnet_3" {
+  subnet_id      = aws_subnet.privatesubnet-3.id
+  route_table_id = aws_route_table.route_private.id
+}
+ 
+###---Creation of security group ---##
+ 
+resource "aws_security_group" "bastion" {
+  name_prefix = "${var.project_name}-${var.project_env}-SGbastion-"
+  description = "Allow ssh "
+  vpc_id      = aws_vpc.vpc.id
+ 
+  ingress {
+    description = "ssh"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+  }
+ 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+  }
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-SGbastion"
+  }
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+resource "aws_security_group" "frontend" {
+  name_prefix = "${var.project_name}-${var.project_env}-frontend-"
+  description = "Allow ssh http https "
+  vpc_id      = aws_vpc.vpc.id
+ 
+  ingress {
+    description     = "ssh"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion.id]
+ 
+  }
+  ingress {
+    description = "http"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+  }
+  ingress {
+    description = "https"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+  }
+ 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+  }
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-SGfrontend"
+  }
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+ 
+resource "aws_security_group" "backend" {
+  name_prefix = "${var.project_name}-${var.project_env}-backend-"
+  description = "Allow ssh mysql "
+  vpc_id      = aws_vpc.vpc.id
+ 
+  ingress {
+    description     = "ssh"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion.id]
+ 
+  }
+  ingress {
+    description     = "mysql"
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+ 
+  }
+ 
+ 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+ 
+  }
+ 
+  tags = {
+    Name = "${var.project_name}-${var.project_env}-SGbackend"
+  }
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+ 
+##---Creation of Key pair and download to local machine--##
+ 
+resource "tls_private_key" "rsa" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+ 
+resource "aws_key_pair" "mykey" {
+ 
+  key_name   = "key-${var.project_name}-${var.project_env}"
+  public_key = tls_private_key.rsa.public_key_openssh
+  tags = {
+    "Name" = "key-${var.project_name}-${var.project_env}",
+  }
+ 
+}
+resource "local_file" "tf-key" {
+  content  = tls_private_key.rsa.private_key_pem
+  filename = "key-${var.project_name}-${var.project_env}.pem"
+}
+ 
+##---Creation of instance---###
+resource "aws_instance" "frontend" {
+ 
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.mykey.id
+  vpc_security_group_ids = [aws_security_group.frontend.id]
+  subnet_id              = aws_subnet.publicsubnet-1.id
+  user_data              = file("frontend.sh")
+  tags = {
+    "Name" = "Frontend-${var.project_name}-${var.project_env}",
+  }
+}
+ 
+resource "aws_instance" "backend" {
+ 
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.mykey.id
+  vpc_security_group_ids = [aws_security_group.backend.id]
+  subnet_id              = aws_subnet.privatesubnet-1.id
+  user_data              = file("backend.sh")
+  tags = {
+    "Name" = "Backend-${var.project_name}-${var.project_env}",
+  }
+}
+ 
+resource "aws_instance" "bastion" {
+ 
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.mykey.id
+  vpc_security_group_ids = [aws_security_group.bastion.id]
+  subnet_id              = aws_subnet.publicsubnet-2.id
+  tags = {
+    "Name" = "Bastion-${var.project_name}-${var.project_env}",
+  }
+}
+ 
